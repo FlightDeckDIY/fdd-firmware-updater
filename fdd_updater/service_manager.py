@@ -11,7 +11,10 @@ from typing import Callable
 
 from .utils import is_windows
 
-_SERVICES = ("FlightDeckConnect", "FlightDeckConnectHID")
+_SERVICES = ("FlightDeckConnectService", "FlightDeckConnectHID")
+_SERVICE_POLL_INTERVAL = 0.5
+_SERVICE_STOP_TIMEOUT = 20.0
+_SERVICE_START_TIMEOUT = 20.0
 
 
 def stop_services(log: Callable[[str], None] | None = None) -> None:
@@ -20,8 +23,7 @@ def stop_services(log: Callable[[str], None] | None = None) -> None:
         return
     for name in _SERVICES:
         _sc("stop", name, log)
-    # Brief pause to let the service release COM ports / HID handles
-    time.sleep(1.5)
+        _wait_for_service_state(name, "STOPPED", _SERVICE_STOP_TIMEOUT, log)
 
 
 def start_services(log: Callable[[str], None] | None = None) -> None:
@@ -30,6 +32,7 @@ def start_services(log: Callable[[str], None] | None = None) -> None:
         return
     for name in _SERVICES:
         _sc("start", name, log)
+        _wait_for_service_state(name, "RUNNING", _SERVICE_START_TIMEOUT, log)
 
 
 def _sc(action: str, service: str, log: Callable[[str], None] | None) -> None:
@@ -37,7 +40,8 @@ def _sc(action: str, service: str, log: Callable[[str], None] | None) -> None:
         if log:
             log(msg)
 
-    _log(f"{action.capitalize()}ping service: {service}")
+    verb = "Stopping" if action == "stop" else "Starting" if action == "start" else action.capitalize()
+    _log(f"{verb} service: {service}")
     try:
         result = subprocess.run(
             ["sc", action, service],
@@ -58,3 +62,54 @@ def _sc(action: str, service: str, log: Callable[[str], None] | None) -> None:
         _log(f"  {service}: {action} timed out")
     except Exception as exc:
         _log(f"  {service}: {action} error — {exc}")
+
+
+def _wait_for_service_state(
+    service: str,
+    target_state: str,
+    timeout: float,
+    log: Callable[[str], None] | None,
+) -> None:
+    """Wait until sc.exe reports a target state, without failing the update flow."""
+    def _log(msg: str) -> None:
+        if log:
+            log(msg)
+
+    deadline = time.monotonic() + timeout
+    last_state: str | None = None
+    while time.monotonic() < deadline:
+        state = _query_service_state(service)
+        if state is None:
+            return
+        last_state = state
+        if state == target_state:
+            return
+        time.sleep(_SERVICE_POLL_INTERVAL)
+
+    if last_state:
+        _log(f"  {service}: still {last_state} after {timeout:.0f}s")
+
+
+def _query_service_state(service: str) -> str | None:
+    """Return the service state name reported by sc.exe, or None if unavailable."""
+    try:
+        result = subprocess.run(
+            ["sc", "query", service],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except Exception:
+        return None
+
+    output = result.stdout or result.stderr or ""
+    if result.returncode != 0:
+        return None
+
+    for line in output.splitlines():
+        if "STATE" not in line:
+            continue
+        parts = line.split()
+        if parts:
+            return parts[-1].upper()
+    return None
