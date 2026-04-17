@@ -4,8 +4,8 @@ A cross-platform GUI application for updating firmware on FDD G1000 devices (Ras
 
 | Firmware | Communication | Use case |
 |---|---|---|
-| **G1000 HID (C/C++ SDK)** | USB HID | Production — no serial driver needed |
-| **MicroPython CDC** | USB Serial (CDC) | Development — REPL and file access via mpremote |
+| **G1000 HID (New Native USB)** | USB HID | Production — no serial driver needed |
+| **MicroPython CDC** | USB Serial (CDC) | Production — REPL and file access via mpremote |
 
 The app is self-contained — no Python installation or external tools are required on end-user machines.
 
@@ -85,7 +85,9 @@ fdd-firmware-updater/
 ├── installer/
 │   ├── fdd_updater.spec       # PyInstaller spec
 │   ├── build_macos.sh         # macOS build script → .app + .dmg
-│   └── build_windows.ps1      # Windows build script → .exe directory
+│   ├── build_windows.ps1      # Windows build script → .exe directory
+│   ├── build_windows_installer.ps1  # Windows build script → setup .exe
+│   └── fdd_updater.iss        # Inno Setup installer definition
 ├── launcher.py                # PyInstaller entry point (do not rename)
 └── pyproject.toml
 ```
@@ -147,7 +149,7 @@ All firmware metadata lives in **`resources/firmware/manifest.json`**. This is t
 
 ### Adding a New MicroPython Version
 
-1. Copy the new MicroPython runtime `.uf2` into `resources/firmware/micropython/`  
+1. Copy the new MicroPython runtime `.uf2` into `resources/firmware/micropython/`
    (rename it if needed — the filename is arbitrary)
 2. Copy updated `.py` application files into `resources/firmware/micropython/`
 3. Update `manifest.json` — update `"uf2"`, `"version"`, and `"app_files"` as needed
@@ -176,15 +178,44 @@ This will:
 
 ### Windows x64
 
-From a PowerShell terminal:
+Before building, place `picotool.exe` from the [pico-sdk GitHub releases](https://github.com/raspberrypi/picotool/releases) at `resources/tools/windows/picotool.exe`.
+
+Build the portable PyInstaller app folder from a PowerShell terminal:
 
 ```powershell
 .\installer\build_windows.ps1
 ```
 
-Before building, place `picotool.exe` from the [pico-sdk GitHub releases](https://github.com/raspberrypi/picotool/releases) at `resources/tools/windows/picotool.exe`.
+Output: `dist\FDD Firmware Updater\`.
 
-Output: `dist\FDD Firmware Updater\` — zip this folder or wrap with Inno Setup for distribution.
+To build a Windows setup installer, install [Inno Setup 6](https://jrsoftware.org/isinfo.php), then run:
+
+```powershell
+.\installer\build_windows_installer.ps1
+```
+
+This script runs `build_windows.ps1` first, then packages the generated app folder with Inno Setup.
+
+Output:
+
+```powershell
+dist\FDD-Firmware-Updater-Windows-Setup-<version>.exe
+```
+
+If `dist\FDD Firmware Updater\` has already been built and you only need to regenerate the installer:
+
+```powershell
+.\installer\build_windows_installer.ps1 -SkipAppBuild
+```
+
+If PowerShell blocks local scripts because of execution policy, run either script with `powershell.exe -ExecutionPolicy Bypass -File`:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\installer\build_windows_installer.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\installer\build_windows_installer.ps1 -SkipAppBuild
+```
+
+Close any running copy of **FDD Firmware Updater** before rebuilding. Windows locks files under `dist\FDD Firmware Updater\` while the app is running, which prevents PyInstaller from replacing the old build.
 
 ### PyInstaller Notes
 
@@ -212,7 +243,7 @@ Output: `dist\FDD Firmware Updater\` — zip this folder or wrap with Inno Setup
 
 ### Windows Service Management
 
-On Windows, `FlightDeckConnect` and `FlightDeckConnectHID` services hold the COM port open. The app calls `sc stop` on both before any operation and `sc start` after, even if the update fails.
+On Windows, `FlightDeckConnectService` and `FlightDeckConnectHID` services hold the COM port open. The app calls `sc stop` on both before any operation and `sc start` after, even if the update fails.
 
 ---
 

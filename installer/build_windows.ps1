@@ -8,13 +8,22 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 Push-Location $RepoRoot
 
 try {
+    $DistDir = Join-Path $RepoRoot "dist\FDD Firmware Updater"
+    $RunningUpdater = Get-Process -ErrorAction SilentlyContinue |
+        Where-Object { $_.ProcessName -eq "FDD Firmware Updater" }
+    if ($RunningUpdater) {
+        $ProcessList = ($RunningUpdater | ForEach-Object { "$($_.ProcessName) (PID $($_.Id))" }) -join ", "
+        throw "Cannot build while the existing updater may be locking '$DistDir'. Close FDD Firmware Updater first: $ProcessList"
+    }
+
     Write-Host "==> Installing Python dependencies..." -ForegroundColor Cyan
     python -m pip install --upgrade pip pyinstaller
     python -m pip install -e .
 
     # Copy picotool.exe if available (download from pico-sdk GitHub releases)
     $PicotoolDest = "resources\tools\windows\picotool.exe"
-    $PicotoolSrc  = (Get-Command picotool.exe -ErrorAction SilentlyContinue)?.Source
+    $PicotoolCmd  = Get-Command picotool.exe -ErrorAction SilentlyContinue
+    $PicotoolSrc  = if ($PicotoolCmd) { $PicotoolCmd.Source } else { $null }
     if ($PicotoolSrc) {
         Copy-Item $PicotoolSrc $PicotoolDest -Force
         Write-Host "    Copied picotool.exe from $PicotoolSrc" -ForegroundColor Green

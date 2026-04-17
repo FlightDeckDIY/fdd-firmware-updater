@@ -59,3 +59,38 @@ def is_windows() -> bool:
 
 def is_macos() -> bool:
     return platform.system() == "Darwin"
+
+
+def is_admin() -> bool:
+    """Return True if the current process has administrator privileges."""
+    if not is_windows():
+        return True  # Not relevant on non-Windows platforms
+    try:
+        import ctypes
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        return False
+
+
+def relaunch_as_admin() -> None:
+    """Re-launch the current process with UAC elevation and exit immediately.
+
+    Uses ShellExecuteW with the 'runas' verb so Windows presents a UAC prompt.
+    The calling code should call sys.exit() after this returns.
+    """
+    import ctypes
+    executable = sys.executable
+    # When frozen by PyInstaller, sys.executable is the .exe itself.
+    # When running from source, pass the script as the parameter.
+    if getattr(sys, "frozen", False):
+        params = " ".join(sys.argv[1:])
+    else:
+        params = " ".join([sys.argv[0]] + sys.argv[1:])
+    ctypes.windll.shell32.ShellExecuteW(
+        None,       # hwnd
+        "runas",    # operation (triggers UAC)
+        executable,
+        params or None,
+        None,       # working directory (inherit)
+        1,          # SW_SHOWNORMAL
+    )

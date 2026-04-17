@@ -35,6 +35,7 @@ _REPORT_SIZE = 32
 # Timeouts
 _BOOTSEL_POLL_INTERVAL = 0.5   # seconds between polls
 _BOOTSEL_TIMEOUT = 30.0        # seconds to wait for BOOTSEL volume
+_CDC_BOOTSEL_RETRY_TIMEOUT = 20.0
 _REBOOT_POLL_INTERVAL = 0.75
 _REBOOT_TIMEOUT = 30.0
 
@@ -166,9 +167,36 @@ def _cdc_enter_bootsel(device: FoundDevice, log: Callable[[str], None]) -> None:
         raise UpdateError("CDC device has no serial port path.")
 
     log(f"Sending BOOTSEL command via mpremote ({device.port})...")
-    # allow_nonzero=True: device disconnects mid-command, mpremote exits non-zero — that's expected
-    _run_mpremote(["connect", device.port, "bootloader"], log, allow_nonzero=True)
-    time.sleep(1.0)
+    deadline = time.monotonic() + _CDC_BOOTSEL_RETRY_TIMEOUT
+    saw_busy_port = False
+
+    while True:
+        # allow_nonzero=True: a successful bootloader command may disconnect the
+        # device mid-command, causing mpremote to exit non-zero.
+        exit_code, stdout, stderr = _run_mpremote(
+            ["connect", device.port, "bootloader"],
+            log,
+            allow_nonzero=True,
+        )
+        output = "\n".join(part for part in (stdout, stderr) if part)
+
+        if exit_code in (0, None) or not _mpremote_port_busy(output):
+            time.sleep(1.0)
+            return
+
+        if find_bootsel_volume() is not None:
+            return
+
+        if time.monotonic() >= deadline:
+            raise UpdateError(
+                f"mpremote could not access {device.port}. "
+                "Another process is still holding the serial port."
+            )
+
+        if not saw_busy_port:
+            log("  Serial port is still busy; retrying...")
+            saw_busy_port = True
+        time.sleep(1.0)
 
 
 def _copy_uf2(uf2_path: Path, volume: Path, log: Callable[[str], None]) -> None:
@@ -250,7 +278,7 @@ def _run_mpremote(
     args: list[str],
     log: Callable[[str], None],
     allow_nonzero: bool = False,
-) -> None:
+) -> tuple[int, str, str]:
     """Run mpremote via its Python API.
 
     Works both when running from source and inside a PyInstaller bundle.
@@ -272,7 +300,13 @@ def _run_mpremote(
         with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
             mpremote.main.main()
     except SystemExit as e:
-        exit_code = e.code if isinstance(e.code, int) else 0
+        if e.code is None:
+            exit_code = 0
+        elif isinstance(e.code, int):
+            exit_code = e.code
+        else:
+            exit_code = 1
+            stderr_buf.write(str(e.code))
     except Exception as exc:
         raise UpdateError(f"mpremote error: {exc}") from exc
     finally:
@@ -288,3 +322,17 @@ def _run_mpremote(
     if not allow_nonzero and exit_code not in (0, None):
         err_out = (stderr_buf.getvalue() or stdout_buf.getvalue()).strip()
         raise UpdateError(f"mpremote failed (exit {exit_code}): {err_out}")
+
+    return exit_code, stdout_buf.getvalue(), stderr_buf.getvalue()
+
+
+def _mpremote_port_busy(output: str) -> bool:
+    """Return True when mpremote failed before it could talk to the device."""
+    text = output.lower()
+    return (
+        "failed to access" in text
+        or "could not open port" in text
+        or "permissionerror" in text
+        or "access is denied" in text
+        or "may be in use" in text
+    )

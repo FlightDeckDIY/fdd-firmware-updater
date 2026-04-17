@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import queue
+import sys
 import threading
 import tkinter as tk
 from tkinter import messagebox, scrolledtext, ttk
@@ -11,6 +12,7 @@ from typing import Optional
 from .device_detector import DeviceType, FoundDevice, scan_devices
 from .firmware_catalog import FirmwareEntry, FirmwareCatalog, load_catalog, check_for_updates
 from .updater import UpdateError, flash_firmware
+from .utils import is_admin, is_windows, relaunch_as_admin
 
 
 # ---------------------------------------------------------------------------
@@ -358,6 +360,9 @@ class App(tk.Tk):
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    if is_windows() and not is_admin():
+        relaunch_as_admin()
+        sys.exit(0)
     app = App()
     app.mainloop()
 
