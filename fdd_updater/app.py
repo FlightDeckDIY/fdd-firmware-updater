@@ -34,6 +34,7 @@ class App(tk.Tk):
         self.title(APP_TITLE)
         self.resizable(False, False)
         self._center_window(WIN_WIDTH, WIN_HEIGHT)
+        self._set_icon()
 
         # Data
         self._catalog: FirmwareCatalog = load_catalog()
@@ -44,6 +45,23 @@ class App(tk.Tk):
         self._build_ui()
         self._scan_devices()
         self._poll_queue()
+
+    def _set_icon(self) -> None:
+        """Set the window icon from the bundled PNG."""
+        import platform
+        from .utils import resource_path
+
+        # On macOS the Dock/titlebar icon comes from the .icns in the .app bundle
+        # (set via the PyInstaller spec).  We still set a PhotoImage so the
+        # tkinter window gets an icon when running from source.
+        try:
+            icon_path = resource_path("icons/FDD_logo.png")
+            if icon_path.exists():
+                img = tk.PhotoImage(file=str(icon_path))
+                self.iconphoto(True, img)
+                self._icon_ref = img  # prevent garbage collection
+        except Exception:
+            pass  # non-fatal — app works fine without the icon
 
     # ------------------------------------------------------------------
     # UI construction

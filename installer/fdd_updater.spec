@@ -59,6 +59,8 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+_icon = str(Path(SPECPATH) / ("FDD_logo.icns" if platform.system() == "Darwin" else "FDD_logo.ico"))
+
 exe = EXE(
     pyz,
     a.scripts,
@@ -75,6 +77,7 @@ exe = EXE(
     target_arch=None,       # None = native arch; set "arm64" or "x86_64" to cross-compile
     codesign_identity=None,
     entitlements_file=None,
+    icon=_icon,
 )
 
 coll = COLLECT(
@@ -93,7 +96,7 @@ if platform.system() == "Darwin":
     app = BUNDLE(
         coll,
         name="FDD Firmware Updater.app",
-        icon=None,              # Set to "installer/icon.icns" when available
+        icon=_icon,
         bundle_identifier="com.flightdeckdiy.fdd-firmware-updater",
         version="1.0.0",
         info_plist={

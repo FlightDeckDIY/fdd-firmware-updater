@@ -44,7 +44,6 @@ Click **Check for Updates** to query GitHub Releases for a newer version of the 
 
 - Python 3.11 or newer (`python3.14` recommended)
 - macOS (Apple Silicon) or Windows x64
-- On macOS: `brew install hidapi` for HID device access
 
 ### Running from Source
 
