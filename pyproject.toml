@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fdd-firmware-updater"
+version = "1.0.0"
+description = "Firmware updater for FDD G1000 devices (HID and MicroPython CDC)"
+requires-python = ">=3.11"
+dependencies = [
+    "hid",        # hidapi Python bindings — HID device access
+    "pyserial",   # CDC serial port enumeration
+    "mpremote",   # MicroPython remote tool (bootsel + file upload)
+    "requests",   # GitHub releases API check
+]
+
+[project.scripts]
+fdd-updater = "fdd_updater.app:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["fdd_updater*"]
+
+[tool.setuptools.package-data]
+"*" = ["resources/**/*"]
