@@ -7,7 +7,7 @@
       "name": "G1000 HID (C/C++ SDK)",
       "version": "0.1.0",
       "type": "hid",
-      "uf2": "hid/G1000_HID_CDC.uf2",
+      "uf2": "hid/G1000_HID.uf2",
       "app_files": [],
       "description": "Production HID firmware. Communicates via USB HID. No serial driver required."
     },
