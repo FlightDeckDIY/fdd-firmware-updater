@@ -32,9 +32,9 @@ Connect the G1000 device via USB. The app detects three possible device states a
 
 > **Windows only:** The app automatically stops the `FlightDeckConnect` and `FlightDeckConnectHID` services before flashing and restarts them when complete. No manual service management is needed.
 
-### Check for Updates
+### Updates
 
-Click **Check for Updates** to query GitHub Releases for a newer version of the updater itself. This requires an internet connection.
+The app checks for a newer version automatically when it launches. If one is available, it will offer to download and install it in place — no browser or manual download needed. You can also trigger a check at any time with the **Check for Updates** button.
 
 ---
 
@@ -161,7 +161,46 @@ Add a new entry to the `"firmware"` array in `manifest.json`. Set `"type"` to `"
 
 ---
 
-## Building a Distributable
+## Releasing a New Version
+
+Releases are fully automated via GitHub Actions. When you push a version tag, CI builds the macOS DMG and Windows EXE in parallel and uploads both to the GitHub release. Users with existing installs are notified automatically on next launch and can update in one click.
+
+### Release checklist
+
+1. **Update firmware files** (if changed):
+   - Drop the new `.uf2` into `resources/firmware/hid/` or `resources/firmware/micropython/`
+   - Update `resources/firmware/manifest.json` — bump `"version"` and update `"uf2"` if the filename changed
+
+2. **Bump the app version** in `fdd_updater/__init__.py` and `installer/fdd_updater.spec`:
+   ```python
+   __version__ = "1.0.3"   # __init__.py
+   version="1.0.3"          # fdd_updater.spec, inside the BUNDLE block
+   ```
+
+3. **Commit and push**:
+   ```bash
+   git add -p
+   git commit -m "Release v1.0.3"
+   git push
+   ```
+
+4. **Tag the release** — this is what triggers CI:
+   ```bash
+   git tag v1.0.3
+   git push origin v1.0.3
+   ```
+
+5. **Watch the build** at `https://github.com/FlightDeckDIY/fdd-firmware-updater/actions`. Both jobs (macOS and Windows) run in parallel and take ~5 minutes. When they finish, the DMG and EXE are automatically attached to the release.
+
+That's it. No local build step required.
+
+> **Re-running a failed build:** If a CI job fails, fix the issue, push to `main`, then re-trigger the workflow manually from the Actions tab using **Run workflow** and entering the tag name (e.g. `v1.0.3`).
+
+---
+
+## Local Builds (Development Only)
+
+You only need these if you're testing the build process itself — releases go through CI.
 
 ### macOS (Apple Silicon)
 
@@ -169,60 +208,25 @@ Add a new entry to the `"firmware"` array in `manifest.json`. Set `"type"` to `"
 ./installer/build_macos.sh
 ```
 
-This will:
-1. Detect and use Python 3.11+ from your PATH
-2. Install dependencies (PyInstaller, project deps)
-3. Copy `picotool` from Homebrew into `resources/tools/macos/` (install first with `brew install picotool`)
-4. Run PyInstaller → `dist/FDD Firmware Updater.app`
-5. Create `dist/FDD-Firmware-Updater-macOS.dmg`
+Requires `brew install picotool`. Outputs `dist/FDD Firmware Updater.app` and `dist/FDD-Firmware-Updater-macOS.dmg`.
 
-### Windows x64
-
-Before building, place `picotool.exe` from the [pico-sdk GitHub releases](https://github.com/raspberrypi/picotool/releases) at `resources/tools/windows/picotool.exe`.
-
-Build the portable PyInstaller app folder from a PowerShell terminal:
+### Windows x64 (one-file EXE)
 
 ```powershell
-.\installer\build_windows.ps1
+pip install pyinstaller
+pip install -e .
+python -m PyInstaller installer\fdd_updater_windows.spec --clean --noconfirm
 ```
 
-Output: `dist\FDD Firmware Updater\`.
-
-To build a Windows setup installer, install [Inno Setup 6](https://jrsoftware.org/isinfo.php), then run:
-
-```powershell
-.\installer\build_windows_installer.ps1
-```
-
-This script runs `build_windows.ps1` first, then packages the generated app folder with Inno Setup.
-
-Output:
-
-```powershell
-dist\FDD-Firmware-Updater-Windows-Setup-<version>.exe
-```
-
-If `dist\FDD Firmware Updater\` has already been built and you only need to regenerate the installer:
-
-```powershell
-.\installer\build_windows_installer.ps1 -SkipAppBuild
-```
-
-If PowerShell blocks local scripts because of execution policy, run either script with `powershell.exe -ExecutionPolicy Bypass -File`:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\installer\build_windows_installer.ps1
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\installer\build_windows_installer.ps1 -SkipAppBuild
-```
-
-Close any running copy of **FDD Firmware Updater** before rebuilding. Windows locks files under `dist\FDD Firmware Updater\` while the app is running, which prevents PyInstaller from replacing the old build.
+Output: `dist\FDD Firmware Updater.exe` (single self-contained executable).
 
 ### PyInstaller Notes
 
 - Entry point is `launcher.py` — do not use `fdd_updater/app.py` directly (relative imports break in frozen bundles)
-- `mpremote` is called via its Python API (`mpremote.main.main()`) not as a subprocess — this is intentional, since `sys.executable` inside a frozen app is the bootloader binary, not a Python interpreter
-- The `resources/` tree is embedded in the bundle via `--add-data` in the spec file
+- `mpremote` is called via its Python API, not as a subprocess — `sys.executable` inside a frozen app is the bootloader binary, not a Python interpreter
+- The `resources/` tree is embedded in the bundle via the spec file
 - `collect_all("mpremote")` in the spec ensures all mpremote modules are bundled even though they are never statically imported
+- The Windows spec (`fdd_updater_windows.spec`) produces a one-file EXE with UPX disabled to avoid Windows Defender false positives
 
 ---
 
