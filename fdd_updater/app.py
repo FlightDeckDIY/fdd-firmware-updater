@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import os
+import platform
 import queue
+import subprocess
 import sys
+import tempfile
 import threading
 import tkinter as tk
+from pathlib import Path
 from tkinter import messagebox, scrolledtext, ttk
 from typing import Optional
 
@@ -47,6 +52,7 @@ class App(tk.Tk):
         self._build_ui()
         self._scan_devices()
         self._poll_queue()
+        self.after(1500, self._check_updates_startup)
 
     def _set_icon(self) -> None:
         """Set the window icon from the bundled PNG."""
@@ -255,29 +261,177 @@ class App(tk.Tk):
     # Update check
     # ------------------------------------------------------------------
 
+    def _check_updates_startup(self) -> None:
+        """Silent background check on launch — only prompts if update found."""
+        def _do_check() -> None:
+            available, version, url = check_for_updates(self._catalog)
+            if available:
+                self._msg_queue.put(("check_done", (available, version, url, True)))
+
+        threading.Thread(target=_do_check, daemon=True).start()
+
     def _check_updates(self) -> None:
         self._set_controls_enabled(False)
         self._log("Checking for application updates...")
 
         def _do_check() -> None:
-            available, version = check_for_updates(
+            available, version, url = check_for_updates(
                 self._catalog,
                 log=lambda msg: self._msg_queue.put(("log", msg)),
             )
-            self._msg_queue.put(("check_done", (available, version)))
+            self._msg_queue.put(("check_done", (available, version, url, False)))
 
         threading.Thread(target=_do_check, daemon=True).start()
 
-    def _on_check_done(self, result: tuple[bool, str]) -> None:
-        available, version = result
+    def _on_check_done(self, result: tuple[bool, str, str, bool]) -> None:
+        available, version, asset_url, from_startup = result
         self._set_controls_enabled(True)
-        if available:
-            messagebox.showinfo(
+        if not available:
+            if not from_startup:
+                messagebox.showinfo(APP_TITLE, "You are running the latest version.")
+            return
+
+        if asset_url:
+            answer = messagebox.askyesno(
                 APP_TITLE,
-                f"A new version is available: v{version}\n\nVisit the releases page to download.",
+                f"A new version is available: v{version}\n\nDownload and install now?",
             )
+            if answer:
+                self._download_and_install(asset_url, version)
         else:
-            messagebox.showinfo(APP_TITLE, "You are running the latest version.")
+            # No installable asset for this platform — open browser as fallback
+            import webbrowser
+            answer = messagebox.askyesno(
+                APP_TITLE,
+                f"A new version is available: v{version}\n\nOpen the download page?",
+            )
+            if answer:
+                webbrowser.open(
+                    "https://github.com/FlightDeckDIY/fdd-firmware-updater/releases/latest"
+                )
+
+    # ------------------------------------------------------------------
+    # Auto-update download + install
+    # ------------------------------------------------------------------
+
+    def _download_and_install(self, url: str, version: str) -> None:
+        self._set_controls_enabled(False)
+        self._log(f"Downloading v{version}...")
+
+        suffix = Path(url).suffix  # .dmg or .exe
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+        os.close(tmp_fd)
+
+        def _do_download() -> None:
+            try:
+                import requests  # type: ignore
+                with requests.get(url, stream=True, timeout=30) as r:
+                    r.raise_for_status()
+                    total = int(r.headers.get("content-length", 0))
+                    downloaded = 0
+                    with open(tmp_path, "wb") as f:
+                        for chunk in r.iter_content(chunk_size=65536):
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            if total:
+                                pct = int(downloaded * 100 / total)
+                                self._msg_queue.put(("progress", pct))
+                self._msg_queue.put(("install_ready", tmp_path))
+            except Exception as exc:
+                self._msg_queue.put(("install_error", str(exc)))
+
+        threading.Thread(target=_do_download, daemon=True).start()
+
+    def _on_install_ready(self, tmp_path: str) -> None:
+        self._log("Download complete. Installing...")
+        self._progress["value"] = 100
+        system = platform.system()
+        try:
+            if system == "Darwin":
+                self._apply_update_macos(tmp_path)
+            elif system == "Windows":
+                self._apply_update_windows(tmp_path)
+            else:
+                messagebox.showerror(APP_TITLE, f"Auto-install not supported on {system}.")
+                self._set_controls_enabled(True)
+        except Exception as exc:
+            messagebox.showerror(APP_TITLE, f"Install failed:\n\n{exc}")
+            self._set_controls_enabled(True)
+
+    def _apply_update_macos(self, dmg_path: str) -> None:
+        """Mount DMG, write a shell script to replace the .app after we quit, relaunch."""
+        # Find the running .app bundle (3 levels up from the MacOS binary)
+        if getattr(sys, "frozen", False):
+            current_app = Path(sys.executable).parents[2]
+        else:
+            current_app = None
+
+        if current_app is None or current_app.suffix != ".app":
+            # Running from source — just mount and let the user drag manually
+            subprocess.Popen(["hdiutil", "attach", dmg_path])
+            messagebox.showinfo(APP_TITLE, "DMG mounted. Drag the new app to Applications.")
+            return
+
+        install_dir = current_app.parent  # e.g. /Applications
+        app_name = current_app.name       # e.g. FDD Firmware Updater.app
+        pid = os.getpid()
+
+        script = f"""#!/bin/bash
+# Wait for the running app to exit
+while kill -0 {pid} 2>/dev/null; do sleep 0.5; done
+
+# Mount the DMG
+MOUNT=$(hdiutil attach -nobrowse -readonly "{dmg_path}" | tail -1 | awk '{{print $NF}}')
+
+# Replace the old .app
+rm -rf "{install_dir}/{app_name}"
+cp -R "$MOUNT/{app_name}" "{install_dir}/{app_name}"
+
+# Clean up
+hdiutil detach "$MOUNT" -quiet
+rm -f "{dmg_path}"
+
+# Relaunch
+open "{install_dir}/{app_name}"
+"""
+        script_fd, script_path = tempfile.mkstemp(suffix=".sh")
+        with os.fdopen(script_fd, "w") as f:
+            f.write(script)
+        os.chmod(script_path, 0o755)
+        subprocess.Popen(["bash", script_path])
+        self._log("Update ready. Relaunching...")
+        self.after(300, self.quit)
+
+    def _apply_update_windows(self, exe_path: str) -> None:
+        """Write a batch script to replace the running exe after quit, relaunch."""
+        if getattr(sys, "frozen", False):
+            current_exe = Path(sys.executable)
+        else:
+            messagebox.showinfo(APP_TITLE, "Installer downloaded. Run it to update.")
+            subprocess.Popen([exe_path], shell=True)
+            return
+
+        pid = os.getpid()
+        new_exe = exe_path
+        target = str(current_exe)
+
+        batch = f"""@echo off
+:wait
+tasklist /FI "PID eq {pid}" 2>NUL | find /I "{pid}" >NUL
+if not errorlevel 1 (
+    timeout /t 1 /nobreak >NUL
+    goto wait
+)
+move /Y "{new_exe}" "{target}"
+start "" "{target}"
+del "%~f0"
+"""
+        bat_fd, bat_path = tempfile.mkstemp(suffix=".bat")
+        with os.fdopen(bat_fd, "w") as f:
+            f.write(batch)
+        subprocess.Popen([bat_path], shell=True, close_fds=True)
+        self._log("Update ready. Relaunching...")
+        self.after(300, self.quit)
 
     # ------------------------------------------------------------------
     # Message queue polling (GUI update from background threads)
@@ -305,6 +459,12 @@ class App(tk.Tk):
                     self._on_update_error(str(payload))
                 elif kind == "check_done":
                     self._on_check_done(payload)  # type: ignore[arg-type]
+                elif kind == "install_ready":
+                    self._on_install_ready(str(payload))
+                elif kind == "install_error":
+                    self._log(f"Download failed: {payload}")
+                    self._status("Download failed.")
+                    self._set_controls_enabled(True)
         except queue.Empty:
             pass
         self.after(100, self._poll_queue)

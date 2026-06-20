@@ -72,19 +72,21 @@ def load_catalog() -> FirmwareCatalog:
 def check_for_updates(
     catalog: FirmwareCatalog,
     log: Callable[[str], None] | None = None,
-) -> tuple[bool, str]:
+) -> tuple[bool, str, str]:
     """Check GitHub releases for a newer version of the updater app.
 
-    Returns (update_available, latest_version_string).
+    Returns (update_available, latest_version_string, asset_download_url).
+    asset_download_url is the platform-appropriate installer/DMG URL, or "" if none found.
     """
     if not catalog.github_releases_url:
-        return False, ""
+        return False, "", ""
 
     def _log(msg: str) -> None:
         if log:
             log(msg)
 
     try:
+        import platform
         import requests  # type: ignore
         _log(f"Checking for updates at {catalog.github_releases_url} ...")
         resp = requests.get(catalog.github_releases_url, timeout=8)
@@ -93,20 +95,36 @@ def check_for_updates(
         tag = release.get("tag_name", "").lstrip("v")
         if not tag:
             _log("No version tag found in release.")
-            return False, ""
+            return False, "", ""
 
         from fdd_updater import __version__
         current = _parse_version(__version__)
         latest = _parse_version(tag)
+
+        system = platform.system()
+        asset_url = _pick_asset(release.get("assets", []), system)
+
         if latest > current:
             _log(f"Update available: v{tag}  (current: v{__version__})")
-            return True, tag
+            return True, tag, asset_url
         _log(f"Already up to date (v{__version__}).")
-        return False, tag
+        return False, tag, asset_url
 
     except Exception as exc:
         _log(f"Update check failed: {exc}")
-        return False, ""
+        return False, "", ""
+
+
+def _pick_asset(assets: list[dict], system: str) -> str:
+    """Return the browser_download_url for the best asset for this platform."""
+    for asset in assets:
+        name = asset.get("name", "").lower()
+        url = asset.get("browser_download_url", "")
+        if system == "Darwin" and name.endswith(".dmg"):
+            return url
+        if system == "Windows" and (name.endswith(".exe") or name.endswith(".msi")):
+            return url
+    return ""
 
 
 def _parse_version(v: str) -> tuple[int, ...]:
