@@ -5,7 +5,7 @@
     {
       "id": "hid",
       "name": "G1000 HID (New Native USB)",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "type": "hid",
       "uf2": "hid/G1000_HID.uf2",
       "app_files": [],
