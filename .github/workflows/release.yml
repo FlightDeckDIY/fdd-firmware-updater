@@ -19,9 +19,9 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.2.2
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5.6.0
         with:
           python-version: '3.12'
 
@@ -49,7 +49,7 @@ jobs:
             "dist/FDD-Firmware-Updater-macOS.dmg"
 
       - name: Upload DMG to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.3.2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           files: dist/FDD-Firmware-Updater-macOS.dmg
@@ -59,9 +59,9 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.2.2
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5.6.0
         with:
           python-version: '3.12'
 
@@ -74,7 +74,7 @@ jobs:
         run: python -m PyInstaller installer/fdd_updater_windows.spec --clean --noconfirm
 
       - name: Upload EXE to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.3.2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           files: "dist/FDD Firmware Updater.exe"
