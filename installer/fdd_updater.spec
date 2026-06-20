@@ -98,7 +98,7 @@ if platform.system() == "Darwin":
         name="FDD Firmware Updater.app",
         icon=_icon,
         bundle_identifier="com.flightdeckdiy.fdd-firmware-updater",
-        version="1.0.0",
+        version="1.0.1",
         info_plist={
             "NSHighResolutionCapable": True,
             "LSMinimumSystemVersion": "12.0",
