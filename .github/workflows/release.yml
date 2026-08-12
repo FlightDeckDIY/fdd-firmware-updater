@@ -37,6 +37,12 @@ jobs:
           cp "$(which picotool)" resources/tools/macos/picotool
           xattr -c resources/tools/macos/picotool || true
 
+      - name: Read version
+        id: version
+        run: |
+          v=$(python -c "import re,pathlib; print(re.search(r'^__version__ = \"([^\"]+)\"', pathlib.Path('fdd_updater/__init__.py').read_text(), re.M).group(1))")
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
       - name: Build .app with PyInstaller
         run: python -m PyInstaller installer/fdd_updater.spec --clean --noconfirm
 
@@ -46,13 +52,13 @@ jobs:
             -volname "FDD Firmware Updater" \
             -srcfolder "dist/FDD Firmware Updater.app" \
             -ov -format UDZO \
-            "dist/FDD-Firmware-Updater-macOS.dmg"
+            "dist/FDD-Firmware-Updater-macOS-v${{ steps.version.outputs.version }}.dmg"
 
       - name: Upload DMG to release
         uses: softprops/action-gh-release@v2.3.2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          files: dist/FDD-Firmware-Updater-macOS.dmg
+          files: dist/FDD-Firmware-Updater-macOS-v${{ steps.version.outputs.version }}.dmg
 
   build-windows:
     name: Build Windows EXE
@@ -70,11 +76,28 @@ jobs:
           pip install pyinstaller
           pip install -e .
 
+      - name: Read version
+        id: version
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path fdd_updater\__init__.py -Pattern '^__version__\s*=\s*"([^"]+)"' |
+                Select-Object -First 1).Matches[0].Groups[1].Value
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      # One-file EXE: self-contained, no install step and no Python on the
+      # user's machine. Double-click to run. This is also the asset the in-app
+      # auto-updater downloads and swaps in place.
       - name: Build one-file EXE with PyInstaller
         run: python -m PyInstaller installer/fdd_updater_windows.spec --clean --noconfirm
+
+      - name: Rename EXE with version
+        shell: pwsh
+        run: |
+          Move-Item "dist\FDD Firmware Updater.exe" `
+                    "dist\FDD-Firmware-Updater-Windows-v${{ steps.version.outputs.version }}.exe"
 
       - name: Upload EXE to release
         uses: softprops/action-gh-release@v2.3.2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          files: "dist/FDD Firmware Updater.exe"
+          files: dist/FDD-Firmware-Updater-Windows-v${{ steps.version.outputs.version }}.exe

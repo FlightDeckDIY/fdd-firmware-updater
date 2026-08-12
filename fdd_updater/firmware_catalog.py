@@ -117,13 +117,29 @@ def check_for_updates(
 
 def _pick_asset(assets: list[dict], system: str) -> str:
     """Return the browser_download_url for the best asset for this platform."""
-    for asset in assets:
-        name = asset.get("name", "").lower()
-        url = asset.get("browser_download_url", "")
-        if system == "Darwin" and name.endswith(".dmg"):
-            return url
-        if system == "Windows" and (name.endswith(".exe") or name.endswith(".msi")):
-            return url
+    if system == "Darwin":
+        for asset in assets:
+            if asset.get("name", "").lower().endswith(".dmg"):
+                return asset.get("browser_download_url", "")
+        return ""
+
+    if system == "Windows":
+        # A release carries both the portable one-file EXE and the Inno Setup
+        # installer. The auto-updater replaces the running binary in place, so
+        # it must get the portable EXE — handing it the installer would swap the
+        # app for a setup stub. Prefer non-installer assets; fall back to any
+        # EXE/MSI so a release that only ships an installer still updates (via
+        # the run-the-installer path in _apply_update_windows).
+        candidates = [
+            (a.get("name", "").lower(), a.get("browser_download_url", ""))
+            for a in assets
+            if a.get("name", "").lower().endswith((".exe", ".msi"))
+        ]
+        for name, url in candidates:
+            if "setup" not in name and "install" not in name:
+                return url
+        return candidates[0][1] if candidates else ""
+
     return ""
 
 

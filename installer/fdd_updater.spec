@@ -7,6 +7,7 @@ Build (from repo root):
 """
 
 import platform
+import re
 import sys
 from pathlib import Path
 from PyInstaller.utils.hooks import collect_all, collect_submodules
@@ -16,6 +17,14 @@ block_cipher = None
 # SPECPATH is the directory containing this spec file (installer/).
 # The repo root is one level up.
 REPO_ROOT = str(Path(SPECPATH).parent)
+
+# Single source of truth for the version: fdd_updater/__init__.py. Read it
+# textually so the spec doesn't need the package importable at build time.
+VERSION = re.search(
+    r'^__version__\s*=\s*"([^"]+)"',
+    (Path(REPO_ROOT) / "fdd_updater" / "__init__.py").read_text(),
+    re.M,
+).group(1)
 
 # Collect all resources (firmware UF2s, manifest, bundled tools)
 added_files = [
@@ -98,7 +107,7 @@ if platform.system() == "Darwin":
         name="FDD Firmware Updater.app",
         icon=_icon,
         bundle_identifier="com.flightdeckdiy.fdd-firmware-updater",
-        version="1.0.2",
+        version=VERSION,
         info_plist={
             "NSHighResolutionCapable": True,
             "LSMinimumSystemVersion": "12.0",

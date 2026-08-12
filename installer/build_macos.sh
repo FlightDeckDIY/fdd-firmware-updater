@@ -45,21 +45,45 @@ else
     echo "    The app will still work but picotool-based device inspection will be unavailable."
 fi
 
+# Build outside the repo. This repo may live under an iCloud-synced folder
+# (e.g. ~/Documents), where the file provider stamps com.apple.FinderInfo onto
+# the freshly written .app. codesign then rejects the bundle with "resource
+# fork, Finder information, or similar detritus not allowed", and stripping the
+# xattr doesn't stick because iCloud re-applies it. Building in a plain temp
+# directory sidesteps this entirely; only the finished .dmg is copied back.
+BUILD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/fdd-updater-build.XXXXXX")"
+trap 'rm -rf "$BUILD_DIR"' EXIT
+echo "==> Staging build in $BUILD_DIR (outside the repo, so codesign can sign the bundle)"
+
 echo "==> Running PyInstaller..."
-"$PYTHON" -m PyInstaller installer/fdd_updater.spec --clean --noconfirm
+"$PYTHON" -m PyInstaller installer/fdd_updater.spec --clean --noconfirm \
+    --distpath "$BUILD_DIR/dist" --workpath "$BUILD_DIR/build"
+
+APP="$BUILD_DIR/dist/FDD Firmware Updater.app"
+
+echo "==> Verifying code signature..."
+if codesign --verify --deep --strict "$APP"; then
+    echo "    Signature OK (ad-hoc)."
+else
+    echo "    WARNING: signature verification failed — the .app may not launch on other Macs." >&2
+fi
 
 echo "==> Build output:"
-ls -lh dist/
+ls -lh "$BUILD_DIR/dist/"
 
-# Optional: create a .dmg for distribution
+# Create a versioned .dmg for distribution and copy it back into the repo.
 if command -v hdiutil &>/dev/null; then
-    DMG_NAME="FDD-Firmware-Updater-macOS.dmg"
+    VERSION="$("$PYTHON" -c "import re,pathlib; print(re.search(r'^__version__ = \"([^\"]+)\"', pathlib.Path('fdd_updater/__init__.py').read_text(), re.M).group(1))")"
+    DMG_NAME="FDD-Firmware-Updater-macOS-v${VERSION}.dmg"
     echo "==> Creating ${DMG_NAME} ..."
     hdiutil create \
         -volname "FDD Firmware Updater" \
-        -srcfolder "dist/FDD Firmware Updater.app" \
+        -srcfolder "$APP" \
         -ov -format UDZO \
-        "dist/${DMG_NAME}"
+        "$BUILD_DIR/${DMG_NAME}"
+
+    mkdir -p dist
+    cp -f "$BUILD_DIR/${DMG_NAME}" "dist/${DMG_NAME}"
     echo "==> DMG created: dist/${DMG_NAME}"
 fi
 

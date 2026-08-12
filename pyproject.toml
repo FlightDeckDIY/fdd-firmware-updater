@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fdd-firmware-updater"
-version = "1.0.0"
+dynamic = ["version"]
 description = "Firmware updater for FDD G1000 devices (HID and MicroPython CDC)"
 requires-python = ">=3.11"
 dependencies = [
@@ -16,6 +16,9 @@ dependencies = [
 
 [project.scripts]
 fdd-updater = "fdd_updater.app:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "fdd_updater.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["."]

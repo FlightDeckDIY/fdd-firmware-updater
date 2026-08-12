@@ -15,10 +15,12 @@ $AppExe = Join-Path $DistDir "FDD Firmware Updater.exe"
 $IssFile = Join-Path $PSScriptRoot "fdd_updater.iss"
 
 function Get-ProjectVersion {
-    $Pyproject = Join-Path $RepoRoot "pyproject.toml"
-    $VersionLine = Select-String -Path $Pyproject -Pattern '^\s*version\s*=\s*"([^"]+)"' | Select-Object -First 1
+    # fdd_updater/__init__.py is the single source of truth; pyproject.toml
+    # derives its version from it via [tool.setuptools.dynamic].
+    $InitPy = Join-Path $RepoRoot "fdd_updater\__init__.py"
+    $VersionLine = Select-String -Path $InitPy -Pattern '^__version__\s*=\s*"([^"]+)"' | Select-Object -First 1
     if (-not $VersionLine) {
-        throw "Could not read project version from $Pyproject"
+        throw "Could not read __version__ from $InitPy"
     }
     return $VersionLine.Matches[0].Groups[1].Value
 }
