@@ -5,14 +5,15 @@
     {
       "id": "hid",
       "name": "G1000 HID (New Native USB)",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "type": "hid",
       "uf2": "hid/G1000_HID.uf2",
       "app_files": [],
-      "description": "Production HID firmware. Communicates via USB HID. No serial driver required."
+      "description": "Production HID firmware. Communicates via USB HID. No serial driver required. Each unit reports its own board ID as its USB serial number."
     },
     {
       "id": "micropython",
+      "dev_only": true,
       "name": "MicroPython CDC",
       "version": "0.1.1",
       "type": "cdc",
