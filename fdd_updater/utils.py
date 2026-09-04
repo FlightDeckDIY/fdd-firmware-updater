@@ -7,6 +7,20 @@ import platform
 from pathlib import Path
 
 
+_DEV_MODE_ENV = "FDD_UPDATER_DEV"
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def is_dev_mode() -> bool:
+    """True when the updater should expose development-only options.
+
+    Set FDD_UPDATER_DEV=1 to reveal firmware images that are unsafe for customers
+    to pick blind (the MicroPython CDC build, for one -- flashing it leaves a panel
+    that FlightDeckConnectHID cannot see at all).
+    """
+    return os.environ.get(_DEV_MODE_ENV, "").strip().lower() in _TRUTHY
+
+
 def resource_path(relative: str) -> Path:
     """Return the absolute path to a bundled resource.
 

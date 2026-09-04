@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from .utils import resource_path
+from .utils import is_dev_mode, resource_path
 
 
 @dataclass
@@ -19,6 +19,7 @@ class FirmwareEntry:
     uf2: str                 # Relative path within resources/firmware/
     app_files: list[str]     # Relative paths for extra .py files (cdc only)
     description: str
+    dev_only: bool = False   # Hidden unless FDD_UPDATER_DEV is set
 
     def uf2_path(self) -> Path:
         return resource_path(f"firmware/{self.uf2}")
@@ -58,9 +59,16 @@ def load_catalog() -> FirmwareCatalog:
             uf2=fw["uf2"],
             app_files=fw.get("app_files", []),
             description=fw.get("description", ""),
+            dev_only=bool(fw.get("dev_only", False)),
         )
         for fw in data.get("firmware", [])
     ]
+
+    # Dev-only images stay out of the picker entirely: the combo box and
+    # _selected_firmware() index into this same list, so filtering here keeps
+    # the two in step.
+    if not is_dev_mode():
+        entries = [e for e in entries if not e.dev_only]
 
     return FirmwareCatalog(
         entries=entries,

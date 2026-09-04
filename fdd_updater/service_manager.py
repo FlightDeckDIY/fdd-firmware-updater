@@ -11,7 +11,17 @@ from typing import Callable
 
 from .utils import is_windows
 
+# Legacy service names. Current installs launch FlightDeckConnectHID.exe from the
+# sim's EXE.xml and register no service at all, so on a healthy modern machine both
+# of these are absent. They are still stopped for the benefit of older installs --
+# quietly, because an absent service is the expected case, not a problem worth
+# putting in front of a customer.
 _SERVICES = ("FlightDeckConnectService", "FlightDeckConnectHID")
+
+# sc.exe error codes that mean "nothing to do here", not "something went wrong".
+_ERR_SERVICE_DOES_NOT_EXIST = 1060
+_ERR_SERVICE_NOT_ACTIVE = 1062
+_BENIGN_SC_ERRORS = (_ERR_SERVICE_DOES_NOT_EXIST, _ERR_SERVICE_NOT_ACTIVE)
 _SERVICE_POLL_INTERVAL = 0.5
 _SERVICE_STOP_TIMEOUT = 20.0
 _SERVICE_START_TIMEOUT = 20.0
@@ -41,7 +51,6 @@ def _sc(action: str, service: str, log: Callable[[str], None] | None) -> None:
             log(msg)
 
     verb = "Stopping" if action == "stop" else "Starting" if action == "start" else action.capitalize()
-    _log(f"{verb} service: {service}")
     try:
         result = subprocess.run(
             ["sc", action, service],
@@ -50,17 +59,23 @@ def _sc(action: str, service: str, log: Callable[[str], None] | None) -> None:
             timeout=15,
         )
         if result.returncode == 0:
+            _log(f"{verb} service: {service}")
             _log(f"  {service}: {action} OK")
+        elif result.returncode in _BENIGN_SC_ERRORS:
+            # The service isn't installed, or is already stopped. Both are normal
+            # on an EXE.xml install -- stay silent so the log reads clean.
+            return
         else:
-            # Error 1060 = service does not exist; 1062 = not running (stop)
-            # Both are acceptable — log but don't raise.
             stderr = (result.stderr or result.stdout or "").strip()
+            _log(f"{verb} service: {service}")
             _log(f"  {service}: {action} returned {result.returncode} — {stderr}")
     except FileNotFoundError:
         _log("  sc.exe not found — skipping service management")
     except subprocess.TimeoutExpired:
+        _log(f"{verb} service: {service}")
         _log(f"  {service}: {action} timed out")
     except Exception as exc:
+        _log(f"{verb} service: {service}")
         _log(f"  {service}: {action} error — {exc}")
 
 
