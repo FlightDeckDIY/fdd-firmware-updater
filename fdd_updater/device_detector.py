@@ -57,16 +57,17 @@ def scan_devices() -> list[FoundDevice]:
             extra={"volume": str(bootsel_vol)},
         ))
 
-    # 2. Scan for HID devices
-    devices.extend(_scan_hid())
-
-    # 3. Scan for CDC devices
-    devices.extend(_scan_cdc())
+    # 2. Scan for HID devices, then CDC. Panels are numbered across both lists so
+    # a HID unit and a CDC unit never both display as "#1" -- they are separate
+    # boards, and identical numbering makes them look like one dual-interface device.
+    hid = _scan_hid(start_index=1)
+    devices.extend(hid)
+    devices.extend(_scan_cdc(start_index=1 + len(hid)))
 
     return devices
 
 
-def _scan_hid() -> list[FoundDevice]:
+def _scan_hid(start_index: int = 1) -> list[FoundDevice]:
     """Return HID devices matching G1000 VID/PID."""
     try:
         import hid  # type: ignore
@@ -88,7 +89,7 @@ def _scan_hid() -> list[FoundDevice]:
 
         serial = info.get("serial_number", "")
         product = info.get("product_string", "FDD G1000")
-        idx = len(found) + 1
+        idx = start_index + len(found)
         label = f"G1000 #{idx} [{product}] (HID)  VID=0x{G1000_VID:04X} PID=0x{G1000_PID:04X}"
         if serial:
             label += f"  S/N={serial}"
@@ -105,7 +106,7 @@ def _scan_hid() -> list[FoundDevice]:
     return found
 
 
-def _scan_cdc() -> list[FoundDevice]:
+def _scan_cdc(start_index: int = 1) -> list[FoundDevice]:
     """Return CDC serial ports belonging to an RP2 device (VID=0x2E8A)."""
     try:
         from serial.tools import list_ports  # type: ignore
@@ -129,7 +130,7 @@ def _scan_cdc() -> list[FoundDevice]:
         if system == "Darwin" and not port.startswith("/dev/cu."):
             continue
 
-        idx = len(found) + 1
+        idx = start_index + len(found)
         label = f"G1000 #{idx} [{description}] (MicroPython CDC)  {port}"
         if serial:
             label += f"  S/N={serial}"
